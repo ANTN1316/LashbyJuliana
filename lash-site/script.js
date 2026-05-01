@@ -2,7 +2,7 @@
  * ============================================================
  * LASH BY ISABELLE — script.js
  * Funcionalidades: Navbar, Scroll Reveal, Form Validation,
- *                  Gallery Tabs, WhatsApp Float Mask
+ *                  Gallery Tabs, WhatsApp Float, Phone Mask
  * ============================================================
  */
 
@@ -57,9 +57,18 @@ document.addEventListener('DOMContentLoaded', () => {
         revealObs.unobserve(entry.target); // animate once
       }
     });
-  }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+  }, { threshold: 0.05, rootMargin: '0px 0px 0px 0px' });
 
-  revealEls.forEach(el => revealObs.observe(el));
+  revealEls.forEach(el => {
+    // Se o elemento já está visível na viewport ao carregar, revela imediatamente
+    const rect = el.getBoundingClientRect();
+    const inViewport = rect.top < window.innerHeight && rect.bottom > 0;
+    if (inViewport) {
+      el.classList.add('visible');
+    } else {
+      revealObs.observe(el);
+    }
+  });
 
 
   // ── 3. WHATSAPP FLOATING BUTTON ──────────────────────────────
@@ -76,9 +85,104 @@ document.addEventListener('DOMContentLoaded', () => {
   if (heroSection) waObs.observe(heroSection);
 
 
-  // ── 4. GALLERY TABS ─────────────────────────────────────────
-  const tabs        = document.querySelectorAll('.gallery-tab');
-  const galleryItems = document.querySelectorAll('.gallery-item');
+  // ── 4. BEFORE/AFTER SLIDER + FILTRO ────────────────────────
+  const tabs         = document.querySelectorAll('.gallery-tab');
+  const compareItems = document.querySelectorAll('.compare-item');
+
+  /** Inicializa o slider de um card */
+  const initSlider = (item) => {
+    const beforeWrap = item.querySelector('.compare-before-wrap');
+    const handle     = item.querySelector('.compare-handle');
+    if (!beforeWrap || !handle) return;
+
+    let dragging     = false;
+    let startX       = 0;
+    let startY       = 0;
+    let isHorizontal = null; // null = ainda não decidido
+
+    const setPosition = (x) => {
+      const rect = item.getBoundingClientRect();
+      let   pct  = ((x - rect.left) / rect.width) * 100;
+      pct = Math.min(Math.max(pct, 2), 98);
+
+      // clip-path revela a imagem "antes" até a posição pct
+      beforeWrap.style.clipPath = `inset(0 ${100 - pct}% 0 0)`;
+      handle.style.left         = pct + '%';
+    };
+
+    /* ── Mouse ── */
+    item.addEventListener('mousedown', (e) => {
+      dragging = true;
+      item.classList.add('interacted');
+      e.preventDefault();
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      setPosition(e.clientX);
+    });
+
+    window.addEventListener('mouseup', () => { dragging = false; });
+
+    /* ── Touch: detecta direção antes de interceptar ── */
+    item.addEventListener('touchstart', (e) => {
+      startX       = e.touches[0].clientX;
+      startY       = e.touches[0].clientY;
+      isHorizontal = null;
+      dragging     = false;
+    }, { passive: true });
+
+    // Listener no ITEM (não no window) — só intercepta toques que começaram aqui
+    item.addEventListener('touchmove', (e) => {
+      if (!e.touches.length) return;
+
+      const dx = Math.abs(e.touches[0].clientX - startX);
+      const dy = Math.abs(e.touches[0].clientY - startY);
+
+      // Decide direção com threshold maior (10px) para evitar falsos positivos
+      if (isHorizontal === null) {
+        if (dx < 10 && dy < 10) return; // ainda não decidiu — não faz nada
+        isHorizontal = dx > dy * 1.5;   // horizontal precisa ser 50% maior que vertical
+        if (isHorizontal) {
+          dragging = true;
+          item.classList.add('interacted');
+        }
+      }
+
+      if (!isHorizontal) return; // scroll vertical: não intercepta
+
+      e.preventDefault(); // só chega aqui se for gesto horizontal confirmado
+      setPosition(e.touches[0].clientX);
+    }, { passive: false }); // passive: false só neste item, não no window
+
+    item.addEventListener('touchend', () => {
+      dragging     = false;
+      isHorizontal = null;
+    }, { passive: true });
+  };
+
+  compareItems.forEach(initSlider);
+
+  /** Filtro por categoria */
+  const filterGallery = (filter) => {
+    compareItems.forEach((item, i) => {
+      const match = filter === 'todos' || item.dataset.category === filter;
+
+      item.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+      item.style.opacity    = '0';
+      item.style.transform  = 'translateY(10px)';
+
+      setTimeout(() => {
+        item.style.display = match ? 'block' : 'none';
+        if (match) {
+          setTimeout(() => {
+            item.style.opacity   = '1';
+            item.style.transform = 'translateY(0)';
+          }, i * 60);
+        }
+      }, 300);
+    });
+  };
 
   tabs.forEach(tab => {
     tab.addEventListener('click', () => {
@@ -88,36 +192,46 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       tab.classList.add('active');
       tab.setAttribute('aria-selected', 'true');
-
-      // In a real project, filter gallery items by data attribute.
-      // Here we just animate a "refresh" for demo purposes.
-      galleryItems.forEach((item, i) => {
-        item.style.opacity = '0';
-        item.style.transform = 'translateY(16px)';
-        setTimeout(() => {
-          item.style.transition = 'opacity 0.4s ease, transform 0.4s ease';
-          item.style.opacity = '1';
-          item.style.transform = 'translateY(0)';
-        }, 60 + i * 60);
-      });
+      filterGallery(tab.dataset.filter);
     });
   });
 
-
-  // ── 6. SET MINIMUM DATE (no past dates) ─────────────────────
+  // ── 6. SET MINIMUM DATE (no past dates, weekdays only) ─────
   const dateInput = document.getElementById('date');
 
   if (dateInput) {
-    const today = new Date();
-    // Minimum: tomorrow
-    const tomorrow = new Date(today);
-    tomorrow.setDate(today.getDate() + 1);
-    dateInput.min = tomorrow.toISOString().split('T')[0];
+    // Mínimo: próximo dia útil a partir de amanhã
+    const getNextWeekday = (date) => {
+      const d = new Date(date);
+      d.setDate(d.getDate() + 1);
+      while (d.getDay() === 0 || d.getDay() === 6) { // 0 = dom, 6 = sáb
+        d.setDate(d.getDate() + 1);
+      }
+      return d;
+    };
 
-    // Maximum: 3 months ahead
-    const maxDate = new Date(today);
-    maxDate.setMonth(today.getMonth() + 3);
+    const nextWeekday = getNextWeekday(new Date());
+    dateInput.min = nextWeekday.toISOString().split('T')[0];
+
+    // Máximo: 3 meses à frente
+    const maxDate = new Date();
+    maxDate.setMonth(maxDate.getMonth() + 3);
     dateInput.max = maxDate.toISOString().split('T')[0];
+
+    // Bloqueia fins de semana ao digitar/selecionar manualmente
+    dateInput.addEventListener('change', () => {
+      const chosen = new Date(dateInput.value + 'T00:00:00');
+      const day = chosen.getDay();
+      if (day === 0 || day === 6) {
+        dateInput.value = '';
+        dateInput.classList.add('error');
+        const err = document.getElementById('date-error');
+        if (err) {
+          err.textContent = 'Atendemos apenas de segunda a sexta.';
+          err.classList.add('show');
+        }
+      }
+    });
   }
 
 
@@ -148,14 +262,23 @@ document.addEventListener('DOMContentLoaded', () => {
       return ok;
     }
 
+
+
     if (id === 'service') {
       const ok = val !== '';
       setError('service', 'service-error', !ok);
       return ok;
     }
 
-    if (id === 'date') {
-      const ok = val !== '' && new Date(val) >= new Date(dateInput.min);
+if (id === 'date') {
+      if (!val) {
+        setError('date', 'date-error', true);
+        return false;
+      }
+      // Create date with explicit time to avoid timezone issues
+      const selected = new Date(val + 'T00:00:00');
+      const min = new Date(dateInput.min + 'T00:00:00');
+      const ok = selected >= min;
       setError('date', 'date-error', !ok);
       return ok;
     }
@@ -207,6 +330,17 @@ document.addEventListener('DOMContentLoaded', () => {
         notes:   document.getElementById('notes').value.trim(),
       };
 
+      const serviceLabel = document.getElementById('service').selectedOptions[0]?.textContent || data.service;
+      const message = `Olá Juliana! Gostaria de agendar um horário.
+
+Nome: ${data.name}
+Procedimento: ${serviceLabel}
+Data: ${data.date}
+Horário: ${data.time}
+Observações: ${data.notes || 'Nenhuma'}`;
+      const waUrl = `https://wa.me/5521998317983?text=${encodeURIComponent(message)}`;
+
+      window.open(waUrl, '_blank');
       console.log('[Agendamento] Dados coletados:', data);
       // In production: send to backend via fetch()
 
@@ -214,18 +348,6 @@ document.addEventListener('DOMContentLoaded', () => {
       formContent.classList.add('hide');
       formSuccess.classList.add('show');
       formSuccess.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      
-      const mensagem =
-        "Olá Juliana!\n" +
-        `Meu nome é ${data.name}.\n` +
-        `Serviço: ${data.service}\n` +
-        `Data: ${data.date}\n` +
-        `Hora: ${data.time}` +
-        `\nObservação: ${data.notes ? data.notes : 'Nenhuma'}\n`;
-
-      const url = `https://wa.me/5521999731008?text=${encodeURIComponent(mensagem)}`;
-
-      window.open(url, '_blank');
     });
   }
 

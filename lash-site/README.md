@@ -1,4 +1,4 @@
-# 🌸 Lash by Isabelle — Site de Lash Design
+# 🌸 Lash by Juliana — Site de Lash Design
 
 Site profissional de alta conversão para negócio de lash design (extensão de cílios).
 Design elegante e sofisticado com foco em agendamentos.
